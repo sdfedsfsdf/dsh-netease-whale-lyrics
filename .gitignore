@@ -1,0 +1,8 @@
+node_modules/
+_tmp/
+*.tgz
+*.zip
+*.log
+cookie.json
+config.json
+.env*
