@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { createRequire } from 'node:module'
 import { Script } from 'node:vm'
 import { unpatch } from './bridge.mjs'
-const profile = process.argv[2] || process.env.DSH_PROFILE_DIR || process.cwd()
+const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+const profile = process.argv[2] || path.join(home, 'profiles', 'desktop')
 const pkg = createRequire(path.join(profile, 'package.json')).resolve('dsh-whale-widget/package.json')
 const file = path.join(path.dirname(pkg), 'assets', 'whale-widget.js')
 const original = fs.readFileSync(file, 'utf8')

@@ -8,6 +8,13 @@
 
 这是 [dsh-whale-widget](https://www.npmjs.com/package/dsh-whale-widget) 与 `dsh-netease-music` 之间的**桥梁插件**，本身不提供音乐能力，也不包含鲸鱼本体。
 
+当前版本 **0.1.6**。仓库：<https://github.com/sdfedsfsdf/dsh-netease-whale-lyrics>。
+
+## 目录
+
+- [前提](#前提) · [安装](#安装) · [使用](#使用) · [注意事项](#注意事项)
+- [权限、外部服务与失败边界](#权限外部服务与失败边界) · [开发与测试](#开发与测试)
+
 ## 前提
 
 | 依赖 | 说明 |
@@ -74,9 +81,31 @@ node scripts/remove-bridge.mjs "C:\Users\你的用户名\.dsh\profiles\desktop"
 
 - 翻译来自网易云，不是机器翻译；纯汉字日文无法仅凭字符可靠区分，有独立译文时仍会显示
 - 时间戳对不齐的歌词可能拿不到译文
-- 模式与字号存在浏览器 localStorage，按 DSH 地址（端口）隔离，换端口后需重选
+- 模式与字号保存在 **`$DSH_HOME/netease-whale-lyrics/settings.json`**，DSH 重启、端口变化都不会丢（0.1.4 起；更早版本存在浏览器 localStorage 里，换端口会重置成「关闭」）。
 - 鲸鱼自身的「思考气泡」总开关必须打开，否则不会显示
 - 无需保持网易云面板打开，但音乐插件与客户端必须可用
+
+## 权限、外部服务与失败边界
+
+这个扩展能力边界很清楚，提前说明白，方便你判断要不要装。
+
+**会用到的东西**
+
+| 能力 | 用在哪 | 范围 |
+| --- | --- | --- |
+| 文件读写 | 给鲸鱼脚本注入/移除兼容桥；读写自己的设置文件 | 仅 `node_modules/dsh-whale-widget/assets/whale-widget.js`（含同目录备份）与 `$DSH_HOME/netease-whale-lyrics/settings.json`，不碰其他路径 |
+| 网络 | 浏览器端向**本机** DSH 发同源 HTTP 请求 | 只访问 `/api/netease-music/*` 与 `/api/netease-whale-lyrics/*`，不发往公网，不加载远程脚本 |
+| 账号凭据 | 不接触 | 不读取 cookie、不登录、不代填账号；歌词与进度由已装好的 `dsh-netease-music` 提供 |
+| 子进程 / 原生模块 | 不使用 | 无 shell、无 native 依赖、无生命周期安装脚本 |
+
+**失败边界**
+
+- 找不到鲸鱼插件、或鲸鱼脚本结构对不上：**拒绝修改**并只写一条警告，鲸鱼保持原样
+- 鲸鱼目录不可写：注入失败但扩展照常加载，只是不显示歌词
+- 音乐插件不可用 / 网易云没开 / 无歌词：气泡不显示或提示「暂无中文翻译」，不影响鲸鱼其他功能
+- 停用扩展并刷新后，所有行为回到原状；兼容桥无人注册时不接管任何点击
+
+**数据留存**：只保存 `mode` 与 `fontPercent` 两个字段，在本机 `settings.json`，不上传任何内容。
 
 ## 开发与测试
 

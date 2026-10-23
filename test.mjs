@@ -65,22 +65,38 @@ class El {
 const head = new El(), host = new El(), shown = []
 let click, interval, mode = 'off', requests = 0, position = 1, playing = true
 const saved = new Map()
+let settingsStore = { saved: false }
+const posts = []
 const env = {
   document: { head, createElement() { return new El() } },
   localStorage: { getItem(k) { return k.includes('font-percent') ? saved.get(k) : mode }, setItem(k, v) { if (k.includes('font-percent')) saved.set(k,v); else mode = v } },
   AbortController, setTimeout, clearTimeout, setInterval(fn) { interval = fn; return 1 }, clearInterval() {},
   __dshWhaleLyricsBridge: { version: 2, settingsHost: host, register(o, f) { click = f; return true }, show(o, t, ttl, detail) { shown.push({ t, ttl, detail }); return true }, hide() {}, unregister() { click = null } },
   async fetch(url, init) {
-    requests++
+    if (String(url).includes('/api/netease-whale-lyrics/settings')) {
+      if (init && init.method === 'POST') {
+        const body = JSON.parse(init.body)
+        assert.equal(init.headers['x-whale-lyrics-csrf'], 'st', '设置写入必须带主机端令牌')
+        posts.push(body)
+        settingsStore = Object.assign({ saved: true }, settingsStore, body)
+        return { ok: true, json: async () => ({ ok: true, settings: settingsStore }) }
+      }
+      return { ok: true, json: async () => ({ ok: true, csrfToken: 'st', settings: settingsStore }) }
+    }
     const tool = init.body && JSON.parse(init.body).tool
+    requests++
     const data = url.endsWith('bootstrap') ? { ok: true, csrfToken: 'test' }
       : tool === 'netease_position' ? { ok: true, songId: '1', position, playing, at: Date.now() }
       : { ok: true, lines: [{ time: 0, text: '第一句' }, { time: 2000, text: '第二句' }] }
     return { ok: true, json: async () => data }
   },
 }
-const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+const flush = async () => { for (let i = 0; i < 60; i++) await Promise.resolve() }
 const dispose = mount(env)
+await flush()
+assert.equal(posts.length, 1, '主机端没有设置时，应把浏览器里的设置迁移过去')
+assert.deepEqual(posts[0], { mode: 'off', fontPercent: 100 })
+const musicRequests = () => requests
 assert.equal(host.children.length, 1)
 const slider = host.children[0].children.find(x => x.attrs['aria-label'] === '歌词字号')
 assert.equal(slider.value, '100')
@@ -103,4 +119,18 @@ assert.equal(shown.at(-1).t, '第二句'); assert.equal(shown.at(-1).ttl, 0)
 select.value = 'off'; select.handlers.change(); await flush()
 const count = shown.length; interval(); await flush(); assert.equal(shown.length, count)
 dispose(); assert.equal(click, null); assert.equal(head.children[0].isConnected, false)
-console.log('PASS: 桥补丁可逆/幂等、系统提示优先、单行时间匹配、关闭不轮询、点击冻结、持续跟随、清理恢复')
+
+// 换端口/重启后：localStorage 是空的，但主机端还记得「持续输出 + 120%」
+settingsStore = { saved: true, mode: 'continuous', fontPercent: 120 }
+posts.length = 0
+mode = 'off'; saved.clear(); shown.length = 0; requests = 0
+const dispose2 = mount(env)
+await flush()
+assert.equal(posts.length, 0, '主机端已有设置时不该反过来覆盖它')
+assert.equal(shown.length > 0, true, '恢复模式后应立即开始推送歌词')
+const row2 = host.children.at(-1)
+const select2 = row2.children[0].children[0]
+assert.equal(select2.value, 'continuous', '菜单里的模式要跟着主机端恢复')
+assert.equal(saved.get('dsh-netease-whale-lyrics-font-percent-v1'), '120', '字号也应从主机端恢复')
+dispose2()
+console.log('PASS: 桥补丁可逆/幂等、系统提示优先、单行时间匹配、关闭不轮询、点击冻结、持续跟随、设置跨端口持久化、清理恢复')

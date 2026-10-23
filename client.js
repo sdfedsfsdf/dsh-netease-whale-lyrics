@@ -49,6 +49,41 @@
             + '.dshwv-lyric-mode .dshwv-text>.dshwv-hint{font-size:clamp(' + (8 * factor) + 'px,calc(var(--dshw-u, .244px) * ' + (44 * factor) + '),' + (26 * factor) + 'px)!important}'
           try { win.localStorage.setItem(fontKey, String(fontPercent)) } catch (_) {}
         }
+        // 设置以主机端为准：DSH 换端口后 localStorage 会清空，靠它把模式/字号找回来。
+        var settingsToken = '', fontValueEl = null, fontSliderEl = null, saveTimer = 0
+        function persist() {
+          try { win.localStorage.setItem(key, mode); win.localStorage.setItem(fontKey, String(fontPercent)) } catch (_) {}
+          if (!settingsToken) return
+          try {
+            win.fetch('/api/netease-whale-lyrics/settings', {
+              method: 'POST', credentials: 'same-origin', cache: 'no-store',
+              headers: { 'content-type': 'application/json', 'x-whale-lyrics-csrf': settingsToken },
+              body: JSON.stringify({ mode: mode, fontPercent: fontPercent }),
+            }).catch(function () {})
+          } catch (_) {}
+        }
+        async function loadSettings() {
+          try {
+            var res = await win.fetch('/api/netease-whale-lyrics/settings', { credentials: 'same-origin', cache: 'no-store' })
+            if (!res.ok) return
+            var out = await res.json()
+            settingsToken = String((out && out.csrfToken) || '')
+            var s = (out && out.settings) || {}
+            if (!s.saved) { persist(); return } // 首次运行：把浏览器里的设置迁到主机端
+            var changed = false
+            if (/^(off|continuous|click)$/.test(s.mode) && s.mode !== mode) { mode = s.mode; changed = true }
+            var f = Number(s.fontPercent)
+            if (f >= 70 && f <= 160 && Math.round(f) !== fontPercent) { fontPercent = Math.round(f); applyFont(fontPercent); changed = true }
+            if (!alive || !changed) return
+            if (select) select.value = mode
+            if (fontSliderEl) fontSliderEl.value = String(fontPercent)
+            if (fontValueEl) fontValueEl.textContent = fontPercent + '%'
+            clear(); nextPoll = 0
+            if (mode !== 'off') poll(true)
+            else if (bridge) bridge.hide(owner)
+            if (hint) status(mode === 'off' ? '已关闭 · 原有气泡行为不变' : '正在连接网易云…')
+          } catch (_) { /* 主机端路由不可用时退回浏览器存储 */ }
+        }
         function status(text) { if (hint) hint.textContent = text }
         function clear() {
           sample = null; lines = []; song = ''; lyricSong = ''; expires = 0; retryAt = 0; single = null
@@ -148,6 +183,7 @@
           for (var c of controllers) c.abort()
           clear(); nextPoll = 0
           try { win.localStorage.setItem(key, mode) } catch (_) {}
+          persist()
           if (select) select.value = mode
           status(mode === 'off' ? '已关闭 · 原有气泡行为不变' : '正在连接网易云…')
           if (mode !== 'off') poll(true)
@@ -177,8 +213,10 @@
           fontSlider.type = 'range'; fontSlider.min = '70'; fontSlider.max = '160'; fontSlider.step = '5'
           fontSlider.value = String(fontPercent); fontSlider.setAttribute('aria-label', '歌词字号')
           fontSlider.style.cssText = 'width:100%;height:24px;margin-top:4px;accent-color:#536ba9;cursor:pointer'
+          fontSliderEl = fontSlider; fontValueEl = fontValue
           fontSlider.addEventListener('input', function () {
             applyFont(fontSlider.value); fontValue.textContent = fontPercent + '%'; paint()
+            win.clearTimeout(saveTimer); saveTimer = win.setTimeout(persist, 300)
           })
           row.appendChild(fontLabel); row.appendChild(fontSlider)
           row.addEventListener('pointerdown', function (e) { e.stopPropagation() })
@@ -195,8 +233,9 @@
           if (mode === 'click' && expires && Date.now() > expires) { if (bridge) bridge.hide(owner); expires = 0 }
         }, 250)
         attach()
+        loadSettings()
         return function () {
-          alive = false; epoch++; win.clearInterval(timer)
+          alive = false; epoch++; win.clearInterval(timer); win.clearTimeout(saveTimer)
           for (var c of controllers) c.abort()
           if (bridge) bridge.unregister(owner)
           if (row) row.remove()
